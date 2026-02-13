@@ -12,6 +12,9 @@
 #include "duckdb/main/settings.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
 
+#include <cstdio>
+#include <iostream>
+
 namespace duckdb {
 
 using ValidityBytes = JoinHashTable::ValidityBytes;
@@ -353,7 +356,7 @@ void JoinHashTable::GetRowPointers(DataChunk &keys, TupleDataChunkState &key_sta
 
 void JoinHashTable::Hash(DataChunk &keys, const SelectionVector &sel, idx_t count, Vector &hashes) {
 	if (count == keys.size()) {
-		// no null values are filtered: use regular hash functions
+		// no null values have been filtered: use regular hash functions
 		VectorOperations::Hash(keys.data[0], hashes, keys.size());
 		for (idx_t i = 1; i < equality_types.size(); i++) {
 			VectorOperations::CombineHash(hashes, keys.data[i], keys.size());
@@ -740,6 +743,7 @@ void JoinHashTable::InsertHashes(Vector &hashes_v, const idx_t count, TupleDataC
 void JoinHashTable::AllocatePointerTable() {
 	capacity = PointerTableCapacity(Count());
 	D_ASSERT(IsPowerOfTwo(capacity));
+	std::cerr << "[JoinHashTable::AllocatePointerTable] Pointer table capacity is " << capacity << std::endl;
 
 	constexpr uint64_t MAX_HASHTABLE_CAPACITY = (1ULL << 48) - 1;
 	if (capacity >= MAX_HASHTABLE_CAPACITY) {
@@ -1675,6 +1679,8 @@ idx_t JoinHashTable::GetRemainingSize() const {
 	return data_size + PointerTableSize(count);
 }
 
+// This is the key move to move the serialized data from the sink_collection 
+// partitions into the global data_collection
 void JoinHashTable::Unpartition() {
 	data_collection = sink_collection->GetUnpartitioned();
 }
