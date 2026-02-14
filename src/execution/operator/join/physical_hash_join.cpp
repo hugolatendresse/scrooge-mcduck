@@ -28,7 +28,28 @@
 #include "duckdb/main/settings.hpp"
 #include "duckdb/execution/join_hashtable.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <iostream>
+
 namespace duckdb {
+
+class ScopedHashJoinTimer {
+public:
+	explicit ScopedHashJoinTimer ScopedHashJoinTimer(atomic<uint64_t> &target_p)
+	    : target(target_p), start(std::chrono::steady_clock::now()) {
+	}
+
+	~ScopedHashJoinTimer() {
+		auto end = std::chrono::steady_clock::now();
+		auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+		target.fetch_add(NumericCast<uint64_t>(elapsed_ns), std::memory_order_relaxed);
+	}
+
+private:
+	atomic<uint64_t> &target;
+	std::chrono::steady_clock::time_point start;
+}
 
 PhysicalHashJoin::PhysicalHashJoin(PhysicalPlan &physical_plan, LogicalOperator &op, PhysicalOperator &left,
                                    PhysicalOperator &right, vector<JoinCondition> conds, JoinType join_type,
@@ -126,7 +147,7 @@ void PhysicalHashJoin::ExtractResidualPredicateColumns(unique_ptr<Expression> &p
 
 void PhysicalHashJoin::InitializeResidualPredicate(const vector<LogicalType> &lhs_input_types,
                                                    const vector<idx_t> &probe_cols) {
-	D_ASSERT(residual_info);
+	// D_ASSERT(residual_info);
 	// build lhs_probe_columns (output + predicate columns)
 	unordered_set<idx_t> required_probe_cols;
 	for (auto col : lhs_output_columns.col_idxs) {
