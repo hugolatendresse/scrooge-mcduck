@@ -399,6 +399,9 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatementInternal
                                                                                  unique_ptr<SQLStatement> statement,
                                                                                  PendingQueryParameters parameters) {
 	StatementType statement_type = statement->type;
+	if (statement_type == StatementType::SELECT_STATEMENT) {
+		printf("Entering a SELECT statement\n"); // Conditional breakpoint doesn't work!
+	}
 	auto result = make_shared_ptr<PreparedStatementData>(statement_type);
 
 	auto &profiler = QueryProfiler::Get(*this);
@@ -412,6 +415,7 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatementInternal
 		}
 	}
 
+	// Planner
 	logical_planner.CreatePlan(std::move(statement));
 	D_ASSERT(logical_planner.plan || !logical_planner.properties.bound_all_parameters);
 	profiler.EndPhase();
@@ -429,6 +433,7 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatementInternal
 #ifdef DEBUG
 	logical_plan->Verify(*this);
 #endif
+
 	if (result->properties.parameter_count > 0 && !parameters.parameters) {
 		// if this is a prepared statement we can choose not to fully plan
 		// if we have parameters, we might want to re-bind when they are available as we can then do more optimizations
@@ -440,6 +445,7 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatementInternal
 		}
 	}
 
+	// Optimizer
 	if (config.enable_optimizer && logical_plan->RequireOptimizer()) {
 		profiler.StartPhase(MetricType::ALL_OPTIMIZERS);
 		Optimizer optimizer(*logical_planner.binder, *this);
@@ -452,7 +458,7 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatementInternal
 #endif
 	}
 
-	// Convert the logical query plan into a physical query plan.
+	// Convert the logical query plan into a physical query plan with Physical Plan Generator.
 	profiler.StartPhase(MetricType::PHYSICAL_PLANNER);
 	PhysicalPlanGenerator physical_planner(*this);
 	result->physical_plan = physical_planner.Plan(std::move(logical_plan));
