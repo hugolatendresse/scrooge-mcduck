@@ -8,6 +8,7 @@
 #include "duckdb/logging/log_manager.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/execution/operator/join/physical_hash_join.hpp"
+#include "duckdb/execution/scoped_hash_join_timer.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/settings.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
@@ -291,8 +292,12 @@ static void GetRowPointersInternal(DataChunk &keys, TupleDataChunkState &key_sta
 	idx_t elements_to_probe_count = count;
 
 	do {
-		const idx_t keys_to_compare_count = ProbeForPointers<USE_SALTS>(state, ht, entries, pointers_result_v, row_sel,
-		                                                                elements_to_probe_count, has_row_sel);
+		idx_t keys_to_compare_count = 0;
+		{
+			ScopedHashJoinTimer probe_for_pointers_timer(state.probe_for_pointers_time_ns);
+			keys_to_compare_count = ProbeForPointers<USE_SALTS>(state, ht, entries, pointers_result_v, row_sel,
+			                                                    elements_to_probe_count, has_row_sel);
+		}
 
 		// if there are no keys to compare, we are done
 		if (keys_to_compare_count == 0) {
@@ -301,9 +306,13 @@ static void GetRowPointersInternal(DataChunk &keys, TupleDataChunkState &key_sta
 
 		// Perform row comparisons, after Match function call salt_match_sel will point to the keys that match
 		keys_no_match_count = 0;
-		const idx_t keys_match_count =
-		    ht.row_matcher_build.Match(keys, key_state.vector_data, state.keys_to_compare_sel, keys_to_compare_count,
-		                               pointers_result_v, &state.keys_no_match_sel, keys_no_match_count);
+		idx_t keys_match_count = 0;
+		{
+			ScopedHashJoinTimer match_timer(state.match_time_ns);
+			keys_match_count = ht.row_matcher_build.Match(keys, key_state.vector_data, state.keys_to_compare_sel,
+			                                              keys_to_compare_count, pointers_result_v,
+			                                              &state.keys_no_match_sel, keys_no_match_count);
+		}
 
 		D_ASSERT(keys_match_count + keys_no_match_count == keys_to_compare_count);
 
@@ -1679,7 +1688,7 @@ idx_t JoinHashTable::GetRemainingSize() const {
 	return data_size + PointerTableSize(count);
 }
 
-// This is the key move to move the serialized data from the sink_collection 
+// This is the key move to move the serialized data from the sink_collection
 // partitions into the global data_collection
 void JoinHashTable::Unpartition() {
 	data_collection = sink_collection->GetUnpartitioned();

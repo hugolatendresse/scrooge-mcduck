@@ -176,6 +176,9 @@ public:
 		Vector ht_offsets_and_salts_v;
 		Vector hashes_dense_v;
 		SelectionVector non_empty_sel;
+		uint64_t *probe_for_pointers_time_ns = nullptr;
+		uint64_t *match_time_ns = nullptr;
+		uint64_t *fast_cache_time_ns = nullptr;
 	};
 
 	struct InsertState : SharedState {
