@@ -151,7 +151,7 @@ void PhysicalHashJoin::ExtractResidualPredicateColumns(unique_ptr<Expression> &p
 
 void PhysicalHashJoin::InitializeResidualPredicate(const vector<LogicalType> &lhs_input_types,
                                                    const vector<idx_t> &probe_cols) {
-	// D_ASSERT(residual_info);
+	D_ASSERT(residual_info);
 	// build lhs_probe_columns (output + predicate columns)
 	unordered_set<idx_t> required_probe_cols;
 	for (auto col : lhs_output_columns.col_idxs) {

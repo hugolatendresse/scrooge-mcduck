@@ -19,7 +19,7 @@ CREATE TABLE b AS SELECT range AS barn FROM range(4);
 ANALYZE a;
 ANALYZE b;
 
--- EXPLAIN ANALYZE SELECT count(*) 
+-- EXPLAIN ANALYZE 
 SELECT count(*) 
 FROM a 
 JOIN b ON a.barn = b.barn 
