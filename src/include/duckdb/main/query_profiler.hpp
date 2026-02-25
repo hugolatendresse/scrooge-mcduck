@@ -105,7 +105,8 @@ public:
 	DUCKDB_API void Flush(const PhysicalOperator &phys_op);
 	DUCKDB_API OperatorInformation &GetOperatorInfo(const PhysicalOperator &phys_op);
 	DUCKDB_API bool OperatorInfoIsInitialized(const PhysicalOperator &phys_op);
-
+	DUCKDB_API void AddExtraInfo(InsertionOrderPreservingMap<string> extra_info);
+	
 public:
 	ClientContext &context;
 
