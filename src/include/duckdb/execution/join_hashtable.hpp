@@ -19,6 +19,7 @@
 #include "duckdb/execution/aggregate_hashtable.hpp"
 #include "duckdb/execution/ht_entry.hpp"
 #include "duckdb/planner/filter/bloom_filter.hpp"
+#include "duckdb/execution/tiered_hash_cache.hpp"
 
 namespace duckdb {
 
@@ -170,6 +171,20 @@ public:
 		SelectionVector keys_no_match_sel;
 	};
 
+	enum class TieredHashCachePhase : uint8_t { WARMUP, READY };
+
+	//! Number of probe-side rows each thread processed before populating the THC.
+	//! TODO 200k rows seem to work better than 100k? Understand what's going on
+	//!  In the future, we might want to at least cover 1 DuckDB row group (2048 * 60 = 122,880 rows)
+	static constexpr idx_t TIERED_HASH_CACHE_WARMUP_ROWS = 200000;
+
+	struct WarmupEntry {
+		hash_t hash;
+		const_data_ptr_t row_ptr;
+	};
+
+	//! There is one instance of this per thread at runtime
+
 	struct ProbeState : SharedState {
 		ProbeState();
 
@@ -178,7 +193,19 @@ public:
 		SelectionVector non_empty_sel;
 		uint64_t *probe_for_pointers_time_ns = nullptr;
 		uint64_t *match_time_ns = nullptr;
-		uint64_t *fast_cache_time_ns = nullptr;
+		uint64_t *tiered_hash_cache_time_ns = nullptr;
+
+		//! Per-thread vectors for THC probing
+		Vector cache_rhs_row_locations;
+		Vector cache_result_pointers;
+		SelectionVector cache_candidates_sel;
+		SelectionVector cache_miss_sel;
+
+		// THC warmup state (per thread)
+		TieredHashCachePhase tiered_hash_cache_phase = TieredHashCachePhase::WARMUP;
+		idx_t warmup_rows_probed = 0;
+
+		vector<WarmupEntry> warmup_entries;
 	};
 
 	struct InsertState : SharedState {
@@ -215,6 +242,9 @@ public:
 	//! Finalize must be called before any call to Probe, and after Finalize is called Build should no longer be
 	//! ever called.
 	void Finalize(idx_t chunk_idx_from, idx_t chunk_idx_to, bool parallel);
+	//! Create the (shared) THC if the table is large enough.
+	//! Must be called after the Finalize tasks that create the global HT
+	void InitializeTieredHashCache();
 	//! Probe the HT with the given input chunk, resulting in the given result
 	void Probe(ScanStructure &scan_structure, DataChunk &keys, TupleDataChunkState &key_state, ProbeState &probe_state,
 	           optional_ptr<Vector> precomputed_hashes = nullptr);
@@ -372,6 +402,14 @@ private:
 	//! Whether or not to use a bloom filter will be determined by the operator
 	BloomFilter bloom_filter;
 	bool should_build_bloom_filter = false;
+
+	//! Shared THC for accelerating repeated probe lookups.
+	//! Created during Finalize when the hash table is large enough.
+	unique_ptr<TieredHashCache> tiered_hash_cache;
+
+	//! The byte offset of the join key in each cached row
+	//! Before that key, there is the validity byte coming from data_collection
+	idx_t tiered_hash_cache_key_offset = 0;
 
 	//! Copying not allowed
 	JoinHashTable(const JoinHashTable &) = delete;

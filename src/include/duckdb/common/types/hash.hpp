@@ -33,24 +33,21 @@ DUCKDB_API hash_t Hash(uint8_t *val, size_t size);
 #else
 
 // Hash function close to identity that leaves the 32 LSB untouched and copies them into the 32 MSB.
-inline hash_t MurmurHash64(uint64_t x) {
-	x &= 0xFFFFFFFF;
-	x |= (x << 32);
-	return x;
-}
-
-
-// Original duckdB hash function
-// //! Efficient hash function that maximizes the avalanche effect and minimizes bias
-// //! See: https://nullprogram.com/blog/2018/07/31/
 // inline hash_t MurmurHash64(uint64_t x) {
-// 	x ^= x >> 32;
-// 	x *= 0xd6e8feb86659fd93U;
-// 	x ^= x >> 32;
-// 	x *= 0xd6e8feb86659fd93U;
-// 	x ^= x >> 32;
+// 	x &= 0xFFFFFFFF;
+// 	x |= (x << 32);
 // 	return x;
 // }
+
+// Original DuckDB hash function
+inline hash_t MurmurHash64(uint64_t x) {
+	x ^= x >> 32;
+	x *= 0xd6e8feb86659fd93U;
+	x ^= x >> 32;
+	x *= 0xd6e8feb86659fd93U;
+	x ^= x >> 32;
+	return x;
+}
 
 
 // modified this hash function so that the last bit of the output is the same as that of the input.
