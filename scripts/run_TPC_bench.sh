@@ -9,6 +9,9 @@ OUT_DIR="./tpch_results"
 RUN_TPCH=1
 RUN_TPCDS=1
 DB_BASE_PATH=""
+RPT_FORWARD_ONLY=0
+DISABLE_TIERED_HASH_CACHE=0
+TPCH_QUERY=""
 
 usage() {
 	cat <<'USAGE'
@@ -22,13 +25,18 @@ Options:
 	--out-dir <dir>         Output directory for results (default: ./tpch_results)
 	--tpch-only             Run only TPC-H (default: run both TPC-H and TPC-DS)
 	--tpcds-only            Run only TPC-DS (default: run both TPC-H and TPC-DS)
+	--tpch-query <number>   Run only a specific TPC-H query (1-22, implies --tpch-only)
+	--rpt-forward-only      Disable the RPT backward pass (forward pass only)
+	--disable-thc           Disable the tiered hash cache
 	-h, --help              Show this help
 
 Examples:
 	scripts/run_TPC_bench.sh --db ./data --sf 1
 	scripts/run_TPC_bench.sh --generate --sf 10
 	scripts/run_TPC_bench.sh --tpch-only --sf 5
+	scripts/run_TPC_bench.sh --tpch-query 5 --sf 500
 	scripts/run_TPC_bench.sh --tpcds-only --sf 10
+	scripts/run_TPC_bench.sh --disable-thc --tpch-only --sf 10
 USAGE
 }
 
@@ -67,6 +75,20 @@ while [[ $# -gt 0 ]]; do
 			RUN_TPCDS=1
 			shift
 			;;
+		--tpch-query)
+			TPCH_QUERY="$2"
+			RUN_TPCH=1
+			RUN_TPCDS=0
+			shift 2
+			;;
+		--rpt-forward-only)
+			RPT_FORWARD_ONLY=1
+			shift
+			;;
+		--disable-thc)
+			DISABLE_TIERED_HASH_CACHE=1
+			shift
+			;;
 		-h|--help)
 			usage
 			exit 0
@@ -94,6 +116,15 @@ fi
 
 mkdir -p "$OUT_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+# Build optional SET prefix
+EXTRA_SET=""
+if [[ $RPT_FORWARD_ONLY -eq 1 ]]; then
+	EXTRA_SET="SET rpt_forward_only = true;"
+fi
+if [[ $DISABLE_TIERED_HASH_CACHE -eq 1 ]]; then
+	EXTRA_SET="${EXTRA_SET} SET disable_tiered_hash_cache = true;"
+fi
 
 TPCH_CSV_PATH="$OUT_DIR/tpch_runtimes_sf${SF}_${TIMESTAMP}.csv"
 TPCH_TXT_PATH="$OUT_DIR/tpch_runtimes_sf${SF}_${TIMESTAMP}.txt"
@@ -190,16 +221,36 @@ if [[ $RUN_TPCH -eq 1 ]]; then
 
 	TPCH_START_WALL=$(date +%s.%N)
 
-	for Q in $(seq 1 22); do
+	# Determine which queries to run
+	if [[ -n "$TPCH_QUERY" ]]; then
+		if ! [[ "$TPCH_QUERY" =~ ^[0-9]+$ ]] || [[ "$TPCH_QUERY" -lt 1 ]] || [[ "$TPCH_QUERY" -gt 22 ]]; then
+			echo "Error: --tpch-query must be between 1 and 22" >&2
+			exit 1
+		fi
+		QUERY_RANGE="$TPCH_QUERY"
+	else
+		QUERY_RANGE=$(seq 1 22)
+	fi
+
+	for Q in $QUERY_RANGE; do
 		echo "Running TPC-H query ${Q}..."
 		TIME_FILE=$(mktemp)
+		ERROR_FILE=$(mktemp)
 		if /usr/bin/time -f "%e" -o "$TIME_FILE" \
-			"$DUCKDB_BIN" "$TPCH_DB_PATH" -c "LOAD tpch; PRAGMA tpch(${Q});" > /dev/null 2>&1; then
+			"$DUCKDB_BIN" "$TPCH_DB_PATH" -c "${EXTRA_SET} LOAD tpch; PRAGMA tpch(${Q});" > /dev/null 2>"$ERROR_FILE"; then
 			RUNTIME=$(cat "$TIME_FILE")
 		else
-			RUNTIME="error"
+			EXIT_CODE=$?
+			echo "Error: TPC-H query ${Q} failed with exit code ${EXIT_CODE}" >&2
+			echo "Error output:" >&2
+			cat "$ERROR_FILE" >&2
+			ERROR_LOG="$OUT_DIR/tpch_q${Q}_error_${TIMESTAMP}.log"
+			cp "$ERROR_FILE" "$ERROR_LOG"
+			echo "Full error saved to: ${ERROR_LOG}" >&2
+			rm -f "$TIME_FILE" "$ERROR_FILE"
+			exit 1
 		fi
-		rm -f "$TIME_FILE"
+		rm -f "$TIME_FILE" "$ERROR_FILE"
 		printf "Q%02d,%s\n" "$Q" "$RUNTIME" >> "$TPCH_CSV_PATH"
 		if [[ "$RUNTIME" != "error" ]]; then
 			TPCH_TOTAL=$(awk -v t="$TPCH_TOTAL" -v r="$RUNTIME" 'BEGIN{printf "%.6f", t + r}')
@@ -232,13 +283,22 @@ if [[ $RUN_TPCDS -eq 1 ]]; then
 	for Q in $(seq 1 99); do
 		echo "Running TPC-DS query ${Q}..."
 		TIME_FILE=$(mktemp)
+		ERROR_FILE=$(mktemp)
 		if /usr/bin/time -f "%e" -o "$TIME_FILE" \
-			"$DUCKDB_BIN" "$TPCDS_DB_PATH" -c "LOAD tpcds; PRAGMA tpcds(${Q});" > /dev/null 2>&1; then
+			"$DUCKDB_BIN" "$TPCDS_DB_PATH" -c "${EXTRA_SET} LOAD tpcds; PRAGMA tpcds(${Q});" > /dev/null 2>"$ERROR_FILE"; then
 			RUNTIME=$(cat "$TIME_FILE")
 		else
-			RUNTIME="error"
+			EXIT_CODE=$?
+			echo "Error: TPC-DS query ${Q} failed with exit code ${EXIT_CODE}" >&2
+			echo "Error output:" >&2
+			cat "$ERROR_FILE" >&2
+			ERROR_LOG="$OUT_DIR/tpcds_q${Q}_error_${TIMESTAMP}.log"
+			cp "$ERROR_FILE" "$ERROR_LOG"
+			echo "Full error saved to: ${ERROR_LOG}" >&2
+			rm -f "$TIME_FILE" "$ERROR_FILE"
+			exit 1
 		fi
-		rm -f "$TIME_FILE"
+		rm -f "$TIME_FILE" "$ERROR_FILE"
 		printf "Q%02d,%s\n" "$Q" "$RUNTIME" >> "$TPCDS_CSV_PATH"
 		if [[ "$RUNTIME" != "error" ]]; then
 			TPCDS_TOTAL=$(awk -v t="$TPCDS_TOTAL" -v r="$RUNTIME" 'BEGIN{printf "%.6f", t + r}')
