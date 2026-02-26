@@ -194,7 +194,7 @@ if [[ $RUN_TPCH -eq 1 ]]; then
 		echo "Running TPC-H query ${Q}..."
 		TIME_FILE=$(mktemp)
 		if /usr/bin/time -f "%e" -o "$TIME_FILE" \
-			"$DUCKDB_BIN" "$TPCH_DB_PATH" -c "INSTALL tpch; LOAD tpch; PRAGMA tpch(${Q});" > /dev/null 2>&1; then
+			"$DUCKDB_BIN" "$TPCH_DB_PATH" -c "LOAD tpch; PRAGMA tpch(${Q});" > /dev/null 2>&1; then
 			RUNTIME=$(cat "$TIME_FILE")
 		else
 			RUNTIME="error"
@@ -233,7 +233,7 @@ if [[ $RUN_TPCDS -eq 1 ]]; then
 		echo "Running TPC-DS query ${Q}..."
 		TIME_FILE=$(mktemp)
 		if /usr/bin/time -f "%e" -o "$TIME_FILE" \
-			"$DUCKDB_BIN" "$TPCDS_DB_PATH" -c "INSTALL tpcds; LOAD tpcds; PRAGMA tpcds(${Q});" > /dev/null 2>&1; then
+			"$DUCKDB_BIN" "$TPCDS_DB_PATH" -c "LOAD tpcds; PRAGMA tpcds(${Q});" > /dev/null 2>&1; then
 			RUNTIME=$(cat "$TIME_FILE")
 		else
 			RUNTIME="error"
