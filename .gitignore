@@ -297,6 +297,10 @@ CMakeUserPresets.json
 # Generated documentation
 docs
 
+# benchmarking
+data/tpch/
+tpch_results/
+
 # tests
 test/test.sql
 duckdb_benchmark_data/
